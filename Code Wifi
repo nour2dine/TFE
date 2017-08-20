@@ -1,1 +1,413 @@
 
+/* --------------------------------------------------------------- PRE-CONFIG */
+
+#include <18f4550.h>
+#include <stdlibm.h>
+#include <stdlib.h>
+
+//LCD Module Connections
+#define LCD_RS_PIN PIN_A2
+#define LCD_RW_PIN PIN_A1
+#define LCD_ENABLE_PIN PIN_A0
+#define LCD_DATA4 PIN_D4
+#define LCD_DATA5 PIN_D5
+#define LCD_DATA6 PIN_D6
+#define LCD_DATA7 PIN_D7
+//End LCD Module Connections
+
+//Variable for Wifi
+#define LOGIN FAYSSAL
+#define PASSWORD FAYSSALISSAM
+//End variable for Wifi
+
+
+#use delay (clock=20000000)
+
+#include <lcd.c>
+
+
+#fuses HS,NOLVP,NOWDT
+
+#use rs232(BAUD=9600, XMIT=PIN_C6, RCV=PIN_C7, BITS=8, PARITY=n, STREAM=Gps)
+#use rs232(BAUD=9600, XMIT=PIN_B6, RCV=PIN_B7, BITS=8, PARITY=n, STREAM=Wifi)
+
+//--------------------------------------------------------------- Mes fonctions
+char esp8266_isStarted();
+void esp8266_sendConfig();
+char esp8286_isEmetteur();
+
+void esp8266_isConnectWifi();
+char esp8266_myIp();
+char esp8266_connectToSrv();
+void esp82866_sendData(char dataToSend);
+char esp8266_stopSendData();
+char esp8266_isDisconnect();
+char esp8266_isReset();
+
+void esp8266_multipleConnection();
+void esp8266_setSrvListenPort();
+
+
+
+//--------------------------------------------------------------- Fonction Void
+void main(){
+
+char dataToSend ;
+      //On vérifie que le module wifi est joignable
+            do
+            {
+               lcd_gotoxy(1,1);
+               lcd_putc("ESP not found ....");
+               delay_ms(2000);
+            
+            }
+            while (esp8266_isStarted() != "OK");
+         
+               lcd_gotoxy(1,1);
+               lcd_putc("ESP is reachable");
+               delay_ms(2000);
+            
+               //lcd_clear();
+               
+               
+             
+     
+               
+      //Reset le module avant toute configuration
+            
+            do
+            {
+               lcd_gotoxy(1,1);
+               lcd_putc("Wifi is reseting ....");
+ 
+            }
+            while (esp8266_isReset() != "OK");
+            
+               lcd_gotoxy(1,1);
+               lcd_putc("Wifi is reset");
+            
+               delay_ms(1500);
+
+        //Config de transfert de data
+      
+            esp8266_sendConfig();
+            lcd_gotoxy(1,1);
+            lcd_putc("Config data OK");
+            delay_ms(1500);
+            
+         
+      // On configure l'esp en tant qu'émetteur
+            do
+            {
+               lcd_gotoxy(1,1);
+               lcd_putc("ESP is not set as Emetteur");
+            
+            }
+            while( esp8286_isEmetteur() != "OK");
+             
+               lcd_gotoxy(1,1);
+               lcd_putc("ESP set as Server");
+
+               delay_ms(1500);
+
+               //lcd_clear();
+             
+  
+             
+       //On se connecte au réseau wifi
+             
+               esp8266_isConnectWifi();
+               
+             
+       // On regarde l'ip du module wifi
+               
+               esp8266_myIp();
+               
+       // ESP COMME SERVEUR
+       
+               esp8266_multipleConnection();
+               
+               
+       // Mettre le serveur a l'ecoute et definir le port
+       
+               esp8266_setSrvListenPort();
+               
+      // Send data
+      // Vérification de l'envoi
+      
+      dataToSend = "COUCOU";
+             do
+             {
+         
+                esp82866_sendData(dataToSend);
+                delay_ms(1500);
+         
+             }
+             while (getchar(Wifi) == "SEND OK");
+         
+       delay_ms(20000);
+      
+            do
+            {
+         
+                esp8266_stopSendData();
+            
+                lcd_gotoxy(1,1);
+                lcd_putc("Closing data sending ...");
+            
+            }
+            while ( esp8266_stopSendData() != "CLOSE OK");
+             
+       //On déconnecte le wifi
+       
+            do
+            {
+                lcd_gotoxy(1,1);
+                lcd_putc("Wifi disconnecting");
+                
+            }
+            while(esp8266_isDisconnect()!= "OK");
+             
+                lcd_gotoxy(1,1);
+                lcd_putc("Wifi is disconnect");
+            
+                delay_ms(1500);
+                //lcd_clear();
+                   
+          
+}
+
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//-----------------------------       Fonctions    ----------------------------
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+//--------Vérification de la connexion au pic ==> On doit avoir un ok en retour 
+
+char esp8266_isStarted()
+{
+              
+               char  reponseIsStarted;
+
+               fprintf(Wifi,"%s","AT/r/n");
+               reponseIsStarted = getc(Wifi);
+               return  reponseIsStarted;
+}
+//Definir la configuration d'échange de données AT+UART=<baudrate>,<databits>,<stopbits>,<parity>,<flow control>
+
+void esp8266_sendConfig()
+{
+               fprintf(wifi,"%s","AT+UART=9600,8,0,0,0/r/n");
+}
+
+            
+//------------------------------------Dire qu'on le veut qu'en tant qu'émetteur
+
+char esp8286_isEmetteur()
+{
+
+               char reponseIsEmetteur;
+
+               fprintf(wifi,"%s","AT+CWMODE = 3/r/n");
+               reponseIsEmetteur = getc(Wifi);
+               return reponseIsEmetteur;
+             
+} 
+
+//-------------------------------------------Configure the AP name and Password 
+
+void esp8266_isConnectWifi()
+{
+            
+            fprintf(Wifi,"%s","AT+CWJAP= LOGIN ,PASSWORD/r/n");
+    
+            lcd_gotoxy(1,1);
+            lcd_putc("AP connected to wifi");
+            delay_ms(1500);
+            //lcd_clear();
+}
+
+//----------------------------------Récupération de l'adresse ip du module wifi
+
+char esp8266_myIp()
+{
+
+
+            char myIp;
+
+            fprintf(wifi,"%s","AT+CWLIF\r\n");
+            myIp= getc(Wifi);
+            lcd_gotoxy(1,1);
+            lcd_putc("Wifi IP :");
+            lcd_putc(myIp);
+            
+      
+            delay_ms(1500);
+            //lcd_clear();
+            return myIp;
+}
+
+//-------------------------------------------------------Connexion à un serveur 
+
+char esp8266_connectToSrv()
+{
+
+            char reponseConnectToSrv;
+            char ipesp ;
+            ipesp = esp8266_myIp();
+            fprintf(wifi,"%s","AT+CIPSTART=TCP,"+ipesp+",8500\r\n");
+            reponseConnectToSrv = getc(Wifi);
+            return reponseConnectToSrv;
+      
+}
+//-------------------------------Envoi de données vers une connexion tcp ou udp 
+   
+void esp82866_sendData(char dataToSend)
+{
+         
+            
+            int8 i = 0;
+            lcd_gotoxy(1,1);
+            lcd_putc("Send data ....");
+            
+            do
+            {
+            
+            /*You can send data in response with the CIPSEND command as used previously, e.g. ( 0 is the
+              channel, 8 is the length of the data)
+             */
+
+                  fprintf(wifi,"%s","AT+CIPSEND=0,8\r\n");
+                  i++;
+            
+            }while( getc(Wifi) == ">" && i< 20);
+            
+            if (getc(Wifi) == ">")
+            {
+            
+               fprintf(wifi,"%s", dataToSend);
+               
+            }else{
+            
+               fprintf(wifi,"%s", "error to send");
+               
+            }
+           
+            delay_ms(1500);
+  
+}
+         
+//------------Lorsqu'on veut fermer une session d'envoi de data ==> AT+CIPCLOSE
+
+char esp8266_stopSendData()
+{
+            char reponseStopData;
+            fprintf(wifi,"%s","AT+CIPCLOSE\r\n");
+            reponseStopData = getc(Wifi);   
+            return reponseStopData;
+} 
+
+//----------------------------------------------Multiple Connection
+
+
+void esp8266_multipleConnection()
+{
+           fprintf(wifi,"%s","AT+CIPMUX=1\r\n");
+      
+}     
+
+void esp8266_setSrvListenPort()
+{
+           fprintf(wifi,"%s","AT+CIPSERVER=1,1336\r\n");
+      
+}
+//-----------------------------------------------------Pour déconnecter le wifi
+
+char esp8266_isDisconnect()
+{
+            char reponseIsDisconnect ;
+            fprintf(wifi,"%s","AT+CWQAP\r\n");
+            reponseIsDisconnect = getc(Wifi);
+            return reponseIsDisconnect;
+
+}
+
+//----------------------------------------------------Pour reset le module wifi
+
+char esp8266_isReset()
+{
+            char reponseIsReset;
+            fprintf(wifi,"%s","AT+RST\r\n");
+            reponseIsReset = getc(Wifi);
+            return reponseIsReset ;
+            
+}
+
+/*
+Ensure AT commands are received correctly
+==>AT
+==> OK
+
+Ensure the module is in a known state by issuing a reset command
+
+==> AT+RST
+
+Enable the module to act as both a “Station” and an “Access Point”
+
+==> AT+CWMODE=3
+==> OK
+
+To see the networks
+
+==>AT+CWLAP
+
+Join a suitable WiFi access point:
+
+==> AT+CWJAP="<access_point_name>","<password>"
+==> OK
+
+my Ip ?
+
+==> AT+CIFSR
+==> 165.256.267.267
+
+Configuration of ESP like an Srv ==============================================
+
+Enable multiple connections
+
+==> AT+CIPMUX=1
+
+my Ip ?
+
+==> AT+CIFSR
+==> 165.256.267.267
+
+Set the module to listen 
+first parameter, mode is set to 1  
+the secon parameter is the port
+
+==> AT+CIPSERVER=1,1336
+
+To connect to esp
+
+telnet 192.168.1.2 1336
+
+
+You can send data in response with the CIPSEND command as used previously, e.g. ( 0 is the
+channel, 8 is the length of the data)
+
+AT+CIPSEND=0,8
+
+The module will display the prompt
+
+==>  ">"
+
+Then you can send the data
+
+==> SEND OK
+
+
+*/
+
+
+
