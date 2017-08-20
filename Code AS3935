@@ -1,1 +1,695 @@
 
+/* **************************************************************************************
+   **************************************************************************************
+   *******************************     Pre-Config     ***********************************
+   **************************************************************************************
+   **************************************************************************************
+*/
+
+#include <18f4550.h>
+
+//LCD Module Connections
+#define LCD_RS_PIN PIN_A2
+#define LCD_RW_PIN PIN_A1
+#define LCD_ENABLE_PIN PIN_A0
+#define LCD_DATA4 PIN_D4
+#define LCD_DATA5 PIN_D5
+#define LCD_DATA6 PIN_D6
+#define LCD_DATA7 PIN_D7
+//End LCD Module Connections
+
+//Lightning Sensor Connections
+#define LS_CS_PIN PIN_A5
+#define LS_SI_PIN PIN_A0
+#define LS_INT_PIN PIN_A1
+#define LS_CLK_PIN PIN_B1
+#define LS_DI_PIN PIN_B0
+#define LS_DO_PIN PIN_C7
+//End of Lightning Sensor Connections
+
+#use delay (clock=20000000)
+#include <lcd.c>
+#define USE_LCD_4x20
+#fuses HS,NOLVP,NOWDT
+
+/* **************************************************************************************
+   **************************************************************************************
+   ******************************     Connexion Spi     *********************************
+   **************************************************************************************
+   **************************************************************************************
+*/
+
+#use SPI( DO=PIN_C7, DI=PIN_B0, CLK=1000000, Master, baud =9600, MODE=1, BITS = 16, MSB_FIRST, stream = SPI_LS)
+
+
+/* **************************************************************************************
+   **************************************************************************************
+   *******************************     Constantes     ***********************************
+   **************************************************************************************
+   **************************************************************************************
+*/
+
+  
+
+#define INDOOR 0x12
+#define OUTDOOR 0x0E
+
+
+/* **************************************************************************************
+   **************************************************************************************
+   ***************************     Liste des fonctions     ******************************
+   **************************************************************************************
+   **************************************************************************************
+*/
+
+void AS3935_Init();
+void AS3935_Calibrate() ;
+
+
+char getUsingMode( int8 usingMode, char msgUsingMode);
+int8 getNoiseFloorLevel(int8 noiseFloorLevel);
+int8 getWdth(int8 seuilWdth);
+int8 getSpikeRejection(int8 spikeRejection);
+void init_Pic();
+int8 get_interruptType(int8 interrupt_source);
+unsigned int8 get_AS3935_Read_distance(int8 AS3935_distance);
+int get_InterruptDetected(int stateOfIntPin);
+
+void AS3935_Write(int8 address, int8 ceQuOnVeutEcrire); 
+int8 AS3935_Read(int8 address);  
+ 
+
+long int8 AS3935_Read_Energy();
+void put_AS3935_To_Indoor();
+
+void put_Config_WatchDog_NFL();
+void put_Config_Rejection();
+void put_Using_Direct_Command();
+
+
+
+ 
+/* **************************************************************************************
+   **************************************************************************************
+   ***********************************     Main     *************************************
+   **************************************************************************************
+   **************************************************************************************
+*/
+
+void main(){
+
+  int8 usingMode ;
+  char msgUsingMode ;
+  int8 disturbersMode ;
+  int8 noiseFloorLevel ;
+  char msg_NoiseFloorLevel ;
+  char msgDisturbersMode ;
+  int8 seuilWdth ;
+  char msgSeuilWdth;
+  int8 spikeRejection;
+  int8 interrupt_detected;
+  int8 interrupt_source;
+  int8 AS3935_distance;
+  int stateOfIntPin ; 
+ 
+  int8 ceQuOnVeutEcrire ;
+  int8 newValue ;
+  int8 address[15];
+  
+  // Lcd inintialisation
+  
+        output_low(LCD_RS_PIN);      // Passe en mode commande  
+        output_low(LCD_RW_PIN);       // on dit qu'on veut écrire write
+        output_high(LCD_RS_PIN);      // Passe en mode écriture
+        Delay_ms(200);
+        
+        lcd_init();                   // Initialisation
+        
+        lcd_gotoxy(1,1);
+        lcd_putc("                                                            ");
+        lcd_gotoxy(1,1);
+        lcd_putc("                                                            ");
+        lcd_gotoxy(1,3);
+        lcd_putc("                                                            ");
+        lcd_gotoxy(1,4);
+        lcd_putc("                                                            ");
+        
+        lcd_cursor_on(FALSE);         // Cursor off
+ 
+  // End of Lcd Initialisation
+ 
+  // Configuration de AS3935 modul
+  
+        //AS3935_Init();
+        //AS3935_Calibrate() ;
+  
+  // Fin de la configuration
+
+
+
+  // Mode interieur ou exterieur ?
+
+        // lcd_clear();
+        lcd_gotoxy(1,1);
+        lcd_putc("Sensor is set to");
+  
+        if (getUsingMode(usingMode, msgUsingMode) == "INDOOR")
+        {
+              lcd_gotoxy(1,2);
+              lcd_putc("Indoor Mode");
+        }
+        else
+        {
+                lcd_gotoxy(1,2);
+                 lcd_putc("Outdoor Mode");
+        }
+  
+        delay_ms(1000);
+
+
+  //Showing noise level
+
+        lcd_gotoxy(1,1);
+        lcd_putc("Noise Level");
+        getNoiseFloorLevel(msg_NoiseFloorLevel);
+        lcd_gotoxy(1,2);
+        lcd_putc(msg_NoiseFloorLevel+"");
+        delay_ms(1000);
+  
+ 
+  //Show watchdog treshold (seuil)
+  
+        lcd_gotoxy(1,1);
+        lcd_putc("Watchdog set to");
+        msgSeuilWdth = getWdth(seuilWdth) + " ";
+        lcd_gotoxy(1,2);
+        lcd_putc(msgSeuilWdth); 
+        delay_ms(1000);
+  
+ 
+  //Show spike rejection
+  
+        
+        lcd_gotoxy(1,1);
+        lcd_putc("Spike rejection");
+        lcd_gotoxy(1,2);
+        lcd_putc(getSpikeRejection(spikeRejection)+ "");
+        delay_ms(1000);
+        
+}
+/*
+ 
+while(kbhit(PIN_A1))
+  {
+  /*
+     Lorsqu'il y a une interruption qui est detecté, il faut aller voir le registre
+     d'interruption et voir la cause de l'interruption. Il existe 3 cas possible :
+     
+     Soit 0x08 : C'est un éclair
+     Soit 0x01 : C'est un bruit
+     Soit 0X04 : C'est un élément perturbateur
+     
+  
+      interrupt_detected = get_InterruptDetected(stateOfIntPin);   
+  
+        if (interrupt_detected == 0) // nothing happens
+        {
+             lcd_gotoxy(6,1);
+             lcd_putc("waiting ....");
+             Delay_ms(150);
+             
+        }
+        else 
+        {
+          
+           delay_ms(2);    
+    
+           if (get_interruptType(interrupt_source) = 0x01)
+           { 
+                   lcd_gotoxy(1,0);
+                   lcd_putc("just noise");
+           }
+           else if (get_interruptType(interrupt_source) = 0x04)
+           {
+                    lcd_gotoxy(1,0);
+                    lcd_putc("Disturbers");
+           }
+           else
+           {
+                    lcd_gotoxy(1,1);
+                    lcd_putc("Lightning");
+                    
+                    // now we get the distance to the lightning event
+                    
+                    lcd_gotoxy(1,2);
+                    lcd_putc("Dist:");
+                    
+                    AS3935_distance = get_AS3935_Read_distance(AS3935_distance);
+                   
+                    lcd_putc(AS3935_distance);
+                    lcd_putc("Km");
+                    
+                    //REad Energy if you want
+                    
+           }
+           
+        }
+     interrupt_detected = 0;
+  }
+  
+}
+
+
+/* **************************************************************************************
+   **************************************************************************************
+   ********************************     Functions     ***********************************
+   **************************************************************************************
+   **************************************************************************************
+*/
+
+//------------------------------------------------------Function to init AS3935
+
+void AS3935_Init(void) {
+  
+  output_high(PIN_C2);                 // Set CS to idle    ?????
+  
+  //put_Using_Direct_Command();
+  put_AS3935_To_Indoor();
+  put_Config_WatchDog_NFL();
+  put_Config_Rejection();
+  
+ 
+}
+
+//---------------------------------------------Function to Using Direct Command
+void put_Using_Direct_Command()
+{
+
+    /*
+         Il exite deux types de commandes pour communiquer avec les registres, soit on
+         y écrit (write), soit on y lit (read). Cependant il existe une deuxieme méthode
+         pour l'écriture qui est le "Direct Command". Afin de pouvoir utiliser cette 
+         dernière deux registres doivent être écrit avec "0x96". Le premier des registres
+         met l'ensemble des registres en mode défaut et le deuxième calibre l'oscillateur
+         Rc interne.
+   */
+
+ 
+         AS3935_Write(0x3C, 0x96);           // set all registers in default mode
+         Delay_ms(2);
+         AS3935_Write(0x3D, 0x96);           // calibrate internal oscillator
+         Delay_ms(2);
+
+}
+//-------------------------------------------------Function to put AS to Indoor
+
+void put_AS3935_To_Indoor()
+ {
+   
+      /*
+          Le module As3935 peut être utilisé autant en exterieur qu'en interieur, mais cela
+          necessite un modification au niveau du registre REG0x00 pour en definir 
+          l'utilisation que l'on va en faire. 
+  
+          registre REG0x00 [5:1]
+          Indoor : 10010
+      */
+   
+          AS3935_write(0x00 >> 1 , 0x12);
+          // AS3935_write(0X00, 0X65);
+ 
+ }
+ 
+ //----------------------------------------------Function to Config wdth and NFL
+void put_Config_WatchDog_NFL()
+{
+
+      /*
+          Une fois que le chien de garde a detecté une activité venant de l'AFE, 
+          il y a une vérification du signal reçu. Mais avant cela on doit définir
+          le seuil de détection du watchdog (REG0x01 [3:0]) ainsi que le seuil
+          de bruit (NFL: Noise Floor Level) acceptable (REG0x01 [4:6]). 
+          Voir tableaux externes pour les seuils.
+      */
+         int8 newValue;
+         newValue = AS3935_Read(0x01) & 0x80;    //Mise du registre à 0 
+         AS3935_Write(0x01, 0x21 | newValue);    // set NFL and WDTreshold  
+         Delay_ms(2);
+   
+}
+
+//------------------------------------------------Function to config Rejections
+void put_Config_Rejection()
+{
+     /*
+         Afin d'améliorer la rejection des éléments perturbateurs il est possible
+         de ne pas prendre en compte les pointes/pics du à l'antenne. Cela se passe
+         dans le registre REG0x02 :
+         [3:0] Spike rejection
+         [5:4] Minimum Number of lightning
+         [6]   Clear statistics
+    */
+         int8 temp ;
+         temp = AS3935_Read(0x02) & 0x80;    //on vide les 7 premiers bits et on laisse à 1 le bit reservé
+         AS3935_Write(0x02, 0x42 | temp);    //On clear les stats (1 au 7ieme bit) et et on met a 2 les rejections
+}
+//------------------------------------------------------- -Function to calibrate
+
+void AS3935_Calibrate(void) {
+
+
+ 
+// declaration of some variables to be used within the function
+   unsigned int8 nbOfCapacitor;
+   long int8 nbOfPulse;
+   long int best_Precision;
+   long int differenceDeFrequence;
+   unsigned short  meilleurNbCapacitor;
+   int8 putRatio16 ;
+   int8 interrupt_detected;
+
+/*
+   La fréquence de résonance de l'antenne doit être reglé avec
+   une precision de +/- 3,5% et est différente de celle de l'AFE, 
+   qui elle a pour fréquence une fraction de celle de l'antenne.
+   Ce/tte facteur/fraction est a reglé aussi dans le registre REG0x03 :
+   [7:6] Fréquency division ration for lightning
+   [5]   Mask Distriber
+   [3:0] Interrup
+   On va prendre un facteur de 16 donc [7:6] à 0
+   0X3F ==> 0011 1111, on force 7 et 6 à 6 
+*/
+   putRatio16 = AS3935_Read(0x03) & 0x3F;
+   AS3935_Write(0x03, putRatio16);
+   Delay_ms(2);
+ 
+   //lcd_clear(); 
+   lcd_gotoxy(1,1);
+   lcd_putc("Calibration du AS3935 ....");
+   Delay_ms(500); 
+ 
+ // For each value of the calibration capacitors we measure the frequency on INT pin
+ // over 100ms period of time. The closest to 3125, the better.
+      
+   
+   /*
+      On va envoyé la fréquence sur la pin INT. On va envoyé la valeur
+      uniquement pendant 100ms car après on l'utilise pour la detection
+      de foudre.
+      On a une fréquence de 500 khz avec un ratio de 16 ce qui donne 31250
+      Et comme nous devons avoir une présicion de 3,5%, ca donne une marge
+      d'erreur de 109.
+      Cette precision depend du nombre de capacités qu'on va utiliser :
+      les capacitors vont de 0 a 120pF et par 8pF donc 16 valeurs diffèrentes
+      à tester.
+      
+   */
+   
+   best_Precision  = 1100 ; // Valeur de depart pour trouver la meilleure précision
+ 
+   int8 i = 0;
+   
+   for(i=0; i<16; i++) {  // Nombre de capacitors max 16 
+      nbOfCapacitor = 0x80 + i; //0x80 force le 8ieme bit à 1 pour mettre la frèquence sur irq
+      int8 registreCapacitor = 0x08 ;
+      AS3935_Write( registreCapacitor , nbOfCapacitor);
+      Delay_ms(50);  // stabilisation ....
+      
+      // lcd_clear(); 
+      lcd_gotoxy(1,1);
+      lcd_putc("C =");
+      lcd_gotoxy(1,2);
+      lcd_putc(i); // On affiche la valeur de la capacité 
+  
+      // Now we measure the frequency
+      
+      nbOfPulse = 0; // nombre d'implusion
+      
+      // We set Timer1 to measure for 100ms
+      // Expected pulse count value is 3125 (500000 HZ: 16 = 31250 pulses/sec)
+      /*
+      // Autoriser les interruption de maniere globale (Globale Interrupt Enable)
+      INTCON.GIE = 1;   // enable interrupts  
+      // Tr
+      INTCON.INT0IE = 1;   // enable INT1 interrupt
+      T1CON = 0x11;     // 1;2 prescaler (10001=17)
+      // TRm1 Systeme Clock Status Bit : si a 1 = Device clock is derived for Timer1 oscillator
+      T1CON.T1RUN = 1;   
+      //Registres de comptage TMR0L (low bit)et TMR0H (high bit)en accessibles en lecture/écriture
+      TMR1H    = 0x3C; // 111100 = 60
+      TMR1L    = 0xB0; // 10110000 = 176
+      TMR1IF_bit = 0;  // interrupt cleared, timer started
+      
+      while(TMR1IF_bit == 0) {
+         if (interrupt_detected ==1) {
+              nbOfPulse++;
+              interrupt_detected = 0;
+         }
+      }
+      
+      INTCON.GIE = 0;   // disable interrupts 
+      */
+      // On affiche le nombre d'impulsion
+      lcd_gotoxy(2,1);
+      lcd_putc("f =");
+      
+      lcd_gotoxy(3,1);
+      lcd_putc(nbOfPulse);
+
+      delay_ms(100); 
+      
+      differenceDeFrequence = abs (nbOfPulse - 31250); //la valeur absolue de la difference
+      if (differenceDeFrequence < best_Precision) {
+         best_Precision = differenceDeFrequence; // On a le meilleur rendement 
+         meilleurNbCapacitor = i; // On a le meilleur nbr de capacitor pour notre systeme
+      }
+      
+    }
+    
+    AS3935_Write(0x08, meilleurNbCapacitor); // Enregistrement du nombre de capacité Et remise à 0 de irq
+ 
+   // En cas de debordement de niveau max de précision
+   if (best_Precision > 109) { // error greater than 3.5%
+      
+      //lcd_clear();
+      lcd_gotoxy(1,1);
+      lcd_putc("Calibration");
+      lcd_gotoxy(2,1);
+      lcd_putc("error");
+     
+      break ;
+   }
+   else   
+   {
+     //lcd_clear(); 
+     lcd_gotoxy(1,1);
+     lcd_putc("Calibrated");
+    
+
+     lcd_gotoxy(2,1);
+     lcd_putc("C =");
+     lcd_gotoxy(2,4);
+     lcd_putc(meilleurNbCapacitor);
+     delay_ms(500);
+     //lcd_clear();  
+    
+     // On remet le registre à zéro pour désactiver l'envoi de la fréquence sur irq
+     AS3935_Write(0x03, 0x00);
+      
+   }
+  
+}
+
+//---------------------------------------------------------------------Function UsingMode
+
+   /*
+   Verification that the AS3935 is configuring for an indoor using
+    Ici on va appliquer le masque 0x3E = 011 1110
+    [7:6] ==> Resved
+    [5:1] ==> Afe Gain Boost
+    [0]   ==> Power Down
+    donc le masque qui s'applique a Afe Gain Boost est 11 111
+    Cette partie peut valoir :
+    10010 : en mode intérieur
+    01110 : en mode exterieur 
+   */
+  
+char getUsingMode( int8 usingMode, char msgUsingMode) 
+{
+
+  usingMode = AS3935_Read(0x00);
+  usingMode = usingMode & 0x3E;
+  
+  if (usingMode == INDOOR)
+  {
+        msgUsingMode = "INDOOR";
+        return msgUsingMode ;
+     
+  }
+  else
+  {
+       msgUsingMode = "OutDoor";
+        return msgUsingMode ;
+  }
+}
+
+//--------------------------------------------------------------Function Noise Floor Level
+
+int8 getNoiseFloorLevel(int8 noiseFloorLevel)
+{
+
+  noiseFloorLevel = AS3935_Read(0x01) & 0x70;
+  
+  return noiseFloorLevel ;
+  
+}
+//-----------------------------------------------------------------Function Seuil Watchdog    
+     //Show watchdog treshold (seuil)
+  
+int8 getWdth(int8 seuilWdth)
+{
+  seuilWdth = AS3935_Read(0x01) & 0x0F;
+  
+  return seuilWdth ;
+}
+
+//----------------------------------------------------------------Function Spike rejection
+  
+  
+int8 getSpikeRejection(int8 spikeRejection)
+{
+  spikeRejection = AS3935_Read(0x02) & 0x0F;
+  
+  return spikeRejection ;
+} 
+
+//------------------------------------------------------Function to detect an interruption
+
+int get_InterruptDetected(int stateOfIntPin)
+{
+   
+      stateOfIntPin = input_state(LS_INT_PIN);
+      return stateOfIntPin ;
+    
+}
+//-------------------------------------------------------Function of reading interrupt type
+
+int8 get_interruptType(int8 interrupt_source)
+{
+   delay_ms(2);    
+    interrupt_source = AS3935_Read(0x03) & 0x0F;
+    return interrupt_source ;
+}
+
+//---------------------------------------------------------------Function to Read Distance 
+
+unsigned int8 get_AS3935_Read_distance( int8 AS3935_distance) 
+{
+
+  /*
+        Ici on ne doit pas récupérer l'ensemble du registre 0x07 mais uniquement les 5
+         premiers bits, les deux derniers étant des bits réservés. C'est pour cela qu'on
+         appliquer un masque sur le registre complet afin de de mettre toujours le 6ième
+         et 7ième bit à 0 ==> 0xF0 = 0011 1111
+  */  
+  
+  AS3935_distance = AS3935_Read(0x07) & 0x3F;
+ 
+  return AS3935_distance;
+  
+}
+
+
+
+
+
+//----------------------------------------- Fonction de la lecture de l'energie
+
+long int8 AS3935_Read_Energy() 
+{
+
+  unsigned short lsb, msb ;
+  long int8 AS3935_energy ;
+ 
+  /*
+      Ici c'est la même chose que pour la lecture de la distance sauf que ce 
+      sont les 5 premiers bit qu'on prend donc le masque sera 0x1F = 0001 1111
+  */
+  
+  AS3935_energy = AS3935_Read(0x06) & 0x1F;
+  
+  /*
+        Ici on récupère l'ensemble du registre donc pas de masque 
+  */
+  
+  msb = AS3935_Read(0x05);
+  lsb = AS3935_Read(0x04);
+ 
+  // ">>" ou "<<"  Décalage de bits 
+  
+  AS3935_energy = (AS3935_energy << 8);
+  AS3935_energy = (AS3935_energy | msb);
+  AS3935_energy = (AS3935_energy << 8);
+  AS3935_energy = (AS3935_energy | lsb);
+ 
+  return AS3935_energy;
+  
+}
+
+
+
+
+
+/*
+
+setup_timer_1(T1_INTERNAL); //disable or set the source and prescale for timer1
+set_timer1(value);   // Initializes the timer1 clock/counter
+value = get_timer1;  // return the value of the timer1 clock/counter
+setup_timer_1(T1_disabled); // disable timer 1 ;
+set_timer1(0); // Mettre le registre du timer 1 à 0 ;
+time = get_timer1(); // Value of the register of timer1
+    
+
+*/
+
+//---------------------------------------------------------------------- Fonction Ecriture
+
+void AS3935_Write( int8* address, int8 ceQuOnVaEcrire)
+{
+  address[15] = 0;
+  address[14] = 0;
+  output_low(PIN_C1);
+  spi_write(address);
+  address[8] = 0;
+  spi_write(ceQuOnVaEcrire);
+  output_high(PIN_C1);
+}
+
+
+//This function is only available on devices with SPI hardware.
+
+//----------------------------------------------------------------------  Fonction Lecture
+
+
+int8 AS3935_Read( int8* address) 
+{
+  int8 value = 0;
+  address[15] = 0;
+  address[14] = 1;
+  output_low(PIN_C1);
+  spi_write(address);
+  address[8] = 0;
+  value = spi_read(address);
+  output_high(PIN_C1);
+  return value;
+}
+/*
+value = spi_read(data);
+data is an 8 bit int.
+value = spi_read_16(data):
+data is an 16 bit int.
+
+
+*/
+
+
