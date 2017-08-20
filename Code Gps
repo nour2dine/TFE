@@ -1,1 +1,558 @@
 
+/* --------------------------------------------------------------- PRE-CONFIG */
+
+#include <18f4550.h>
+#include <stdlibm.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+//LCD Module Connections
+#define LCD_RS_PIN PIN_A2
+#define LCD_RW_PIN PIN_A1
+#define LCD_ENABLE_PIN PIN_A0
+#define LCD_DATA0 PIN_D0
+#define LCD_DATA1 PIN_D1
+#define LCD_DATA2 PIN_D2
+#define LCD_DATA3 PIN_D3
+#define LCD_DATA4 PIN_D4
+#define LCD_DATA5 PIN_D5
+#define LCD_DATA6 PIN_D6
+#define LCD_DATA7 PIN_D7
+//End LCD Module Connections
+
+#define offset_utc            1
+#define offset_latitude       3
+#define offset_longitude      5
+#define offset_date       9
+
+
+#use delay (clock=20000000)
+
+#include <lcd.c>
+
+
+#fuses HS,NOLVP,NOWDT
+
+#use rs232(BAUD=9600, XMIT=PIN_C6, RCV=PIN_C7, BITS=8, PARITY=n, stop=0, STREAM=Gps)
+
+
+void lcd_putstr(char* str, unsigned int8 length);
+void split_data(char* dest[], char* buffer);
+
+void displayUTC(char* buffer_reponse);
+void displayDate(char* buffer_reponse);
+void displayLatitude(char* buffer_reponse);
+void displayLongitude(char* buffer_reponse);
+void displayElement1(char* buffer_reponse);
+void cleanScreen();
+void putBuffer(int8 i, char data, char* buffer_in);
+
+void main()
+{
+
+    lcd_init();
+    Delay_ms(10);
+
+    output_low(LCD_RS_PIN);
+    output_low(LCD_RW_PIN);
+    output_high(LCD_RS_PIN);
+   
+
+while(TRUE)
+{
+    char buffer_in[250];
+    char trame[100];
+    char bufferDebutTrame[6];
+    
+    unsigned int8 i = 0;
+    unsigned int8 data ;
+    
+    
+     putBuffer(i, data, buffer_in);
+     
+     lcd_gotoxy(1,1);
+     lcd_putc("Bonjour");
+     delay_ms(2000);
+     
+ 
+     lcd_gotoxy(1,1);
+     lcd_putc("Contenu du buffer");
+     delay_ms(2000);
+     
+     lcd_gotoxy(1,1);
+     lcd_putc("                                                        ");
+        
+     lcd_gotoxy(1,1);
+     lcd_putstr(buffer_in,250);
+     delay_ms(2000);
+     
+         lcd_gotoxy(1,1);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,2);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,3);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,4);
+         lcd_putc("                                                        ");
+     
+     delay_ms(2000);
+      
+     lcd_gotoxy(1,1);
+     lcd_putc("SEARCH $");
+     delay_ms(2000);
+     
+     i = 0;
+     
+     while( buffer_in[i] != '$' )
+     {
+             i++; 
+     }
+     delay_ms(200);
+     
+     
+         lcd_gotoxy(1,1);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,2);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,3);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,4);
+         lcd_putc("                                                        ");
+         
+     delay_ms(2000);
+    
+     
+     int8 debut = i ;
+     int8 fin = i;
+     
+     lcd_gotoxy(1,1);
+     lcd_putc("SEARCH *");
+     delay_ms(2000);
+     
+     
+     int8 reponse = 1;
+     char etoile = "*";
+     
+     while( reponse !=  0 )
+     {
+            reponse = strcmp(buffer_in[fin],etoile);
+            fin++;
+            
+     }
+     
+  
+     
+         lcd_gotoxy(1,1);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,2);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,3);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,4);
+         lcd_putc("                                                        ");
+     
+     
+     delay_ms(2000);
+     
+     
+     int8 b = 0;
+     char data1 ;
+     i = debut ;
+     
+     
+     while(i < fin-1 ) {
+            
+            data1 = buffer_in[i];
+            trame[b] = data1; 
+            i++;
+            b++;
+             
+     }
+     
+      delay_ms(200);
+     
+     lcd_gotoxy(1,1);
+     lcd_putc("Donnees trame");
+     delay_ms(2000);
+     
+     lcd_gotoxy(1,2);
+     int8 taille = fin - debut ;
+     lcd_putstr(trame, taille);
+     delay_ms(200);
+     
+         lcd_gotoxy(1,1);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,2);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,3);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,4);
+         lcd_putc("                                                        ");
+     
+     
+     char data2 ;
+     int8 a =0;
+     
+     for(a=0 ; a<6 ; a++)
+     {
+             data2 = trame[a];
+             bufferDebutTrame[a]= data2;
+     }
+     
+     lcd_gotoxy(1,1);
+     lcd_putc("DebutTrame");
+     lcd_gotoxy(1,2);
+     lcd_putstr(bufferDebutTrame, 6);
+     delay_ms(2000);
+     
+      
+      
+         lcd_gotoxy(1,1);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,2);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,3);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,4);
+         lcd_putc("                                                        ");
+     
+     delay_ms(200);
+     
+     char ceQuOnCherche = "$GPRMC";
+     int8 laComparaison ;
+     
+     laComparaison =strcmp(bufferDebutTrame,ceQuOnCherche);
+     
+     if(laComparaison == 0)
+     {
+           lcd_gotoxy(1,1);
+           lcd_putc("Bonnnnne Trame");
+           delay_ms(2000);
+           
+           //fonction de decomposition           
+     }
+     else
+     {
+           lcd_gotoxy(1,1);
+           lcd_putc("Mauvaise Trame");
+           delay_ms(2000);
+           
+            lcd_gotoxy(1,1);
+            lcd_putc("                                                        ");
+            lcd_gotoxy(1,2);
+            lcd_putc("                                                        ");
+            lcd_gotoxy(1,3);
+            lcd_putc("                                                        ");
+            lcd_gotoxy(1,4);
+            lcd_putc("                                                        ");
+           
+           int8 a = 0;
+           int8 cdebut = 0;
+           int8 cfin = 0;
+           int8 compt = 0;
+           int8 ctaille = 0;
+           char buffer_reponse[10];
+           char trouve = 0;
+           char data3 ;
+
+          /* while(TRUE)
+           lcd_gotoxy(1,1);
+           lcd_putc("Je suis dans le 1er while trouve");
+           delay_ms(2000);
+           { 
+           debut = i  ; 
+           */
+           while(!trouve)
+           {
+                   lcd_gotoxy(1,1);
+                   lcd_putc("while");
+                   delay_ms(200);
+                   
+                   if(compt != 0)
+                   {
+                   
+                       a++;
+                       cdebut = a ;
+                       
+                   }
+                   
+                   
+                   
+                   while(trame[a] != ',')
+                   {
+                       a++; 
+                   }
+                   
+                   
+                
+                   lcd_gotoxy(1,1);
+                   lcd_putc("out while");
+                   delay_ms(200);
+                   
+                   lcd_gotoxy(1,1);
+                   lcd_putc("                                               ");
+                   
+                   
+                   cfin = a ;
+                   compt++;
+                   ctaille = cfin-cdebut;
+                   //strncpy(buffer_reponse,trame[cdebut], 6);
+                   
+                   for(b=0 ; b<ctaille ; b++)
+                   {
+                        data3 = trame[cdebut+b];
+                        buffer_reponse[b]= data3;
+                   }
+                   
+                   switch(compt){
+         
+                      case 1  :  displayElement1(buffer_reponse); break;
+                      case 2  :  displayUTC(buffer_reponse) ; break ;
+                      case 4  :  displayLatitude(buffer_reponse)   ; break;
+                      case 6  :  displayLongitude(buffer_reponse) ; break;
+                      case 10 :  displayDate(buffer_reponse)   ; break;
+                      case 12 :  trouve = 1 ; break;
+                   } 
+                  
+                  lcd_gotoxy(1,1);
+                  lcd_putc("out switch");
+                  delay_ms(200);
+                  
+                    lcd_gotoxy(1,1);
+                    lcd_putc("                                                        ");
+                    lcd_gotoxy(1,2);
+                    lcd_putc("                                                        ");
+                    lcd_gotoxy(1,3);
+                    lcd_putc("                                                        ");
+                    lcd_gotoxy(1,4);
+                    lcd_putc("                                                        ");
+                    
+                    
+                    
+           }
+          
+          
+     }
+      
+     
+     
+     lcd_gotoxy(1,1);
+     lcd_putc("Fin                                                           ");
+     delay_ms(2000);
+     
+  }      
+  
+     
+}
+
+
+
+void lcd_putstr(char* str, unsigned int8 length)
+{
+    unsigned int8 i = 0;
+
+    while(i < length)
+    {
+        lcd_putc(str[i]);
+        ++i;
+    }
+}
+
+
+void split_data(char* dest[], char* buffer)
+{
+    char *ptr, delimiter[2];
+
+    delimiter = ","; // !!!!!!
+    // Strtok crée des tokens à chaque fois qu'il trouve des élements contenuent dans la variable Delimiter
+    ptr = strtok(buffer, delimiter);
+
+    unsigned int8 i = 0;
+    // Malloc = fonction d'allocation de mémoire dynamique
+    dest[i] = (char*) malloc(sizeof(*ptr));
+    strcpy(dest[i], *ptr);
+
+    i++;
+
+    while( ptr != 0 )
+    {
+        ptr = strtok(0, delimiter);
+        dest[i] = (char*) malloc(sizeof(*ptr));
+        strcpy(dest[i], *ptr);
+
+        i++;
+    }
+}
+
+
+void displayElement1(char* buffer_reponse)
+{
+         lcd_gotoxy(1,1);
+         lcd_putc("Element 1");
+         lcd_gotoxy(1,2);
+         lcd_putstr(buffer_reponse, 10);
+         delay_ms(2000);
+ 
+}
+
+void displayUTC(char* buffer_reponse)
+{
+         
+         char buffer_heure[2] ;
+         char buffer_Minute[2] ;
+         char buffer_Seconde[2] ;
+         char data3;
+         int8 a = 0 ;
+         int8 b = 0 ;
+         int8 i = 0 ;
+         
+         for(i=0 ; i<6 ; i++)
+         {
+               if(i<2)
+               {
+                  data3 = buffer_reponse[i];
+                  buffer_heure[i]= data3 ;
+               }
+               else if(i<4)
+               {
+                  data3 = buffer_reponse[i];
+                  buffer_minute[a]= data3 ;
+                  a++;
+               }
+               else
+               {
+                  data3 = buffer_reponse[i];
+                  buffer_seconde[b]= data3 ;
+                  b++;
+                
+               }
+         }
+               
+         lcd_gotoxy(1,1);
+         lcd_putc("Utc");
+         lcd_gotoxy(1,2);
+         lcd_putstr(buffer_heure, 2);
+         lcd_putc("h");
+         lcd_putstr(buffer_minute, 2);
+         lcd_putc("s");
+         lcd_putstr(buffer_seconde, 2);
+         lcd_putc("ss");
+         
+         
+         delay_ms(2000);
+}
+void displayDate(char* buffer_reponse)
+{
+        
+         char buffer_jour[2] ;
+         char buffer_mois[2] ;
+         char buffer_annee[4] ;
+         
+         char data4;
+         int8 a = 0 ;
+         int8 b = 0 ;
+         int8 i = 0 ;
+              
+         for(i=0 ; i<6 ; i++)
+         {
+               if(i<2)
+               {
+                  data4 = buffer_reponse[i];
+                  buffer_jour[i]= data4 ;
+               }
+               else if(i<4)
+               {
+                  data4 = buffer_reponse[i];
+                  buffer_mois[a]= data4 ;
+                  a++;
+               }
+               else
+               {
+              
+                  data4 = buffer_reponse[i];
+                  buffer_annee[b]= data4 ;
+                  b++;
+                
+               }
+         }
+        
+         lcd_gotoxy(1,1);
+         lcd_putc("Date");
+         lcd_gotoxy(1,2);
+         lcd_putstr(buffer_jour, 2);
+         lcd_putc("/");
+         lcd_putstr(buffer_mois, 2);
+         lcd_putc("/");
+         lcd_putstr(buffer_annee, 2);
+        
+        
+         
+         delay_ms(2000);
+         
+         
+}
+void displayLatitude(char* buffer_reponse)
+{
+         lcd_gotoxy(1,1);
+         lcd_putc("Latitude");
+         lcd_gotoxy(1,2);
+         lcd_putstr(buffer_reponse,10);
+
+         delay_ms(2000);
+        
+}
+void displayLongitude(char* buffer_reponse)
+{
+         lcd_gotoxy(1,1);
+         lcd_putc("Longitude");
+         lcd_gotoxy(1,2);
+         lcd_putstr(buffer_reponse,10);
+
+         delay_ms(2000);
+       
+}
+void putBuffer(int8 i, char data, char* buffer_in)
+{
+        
+        
+         while( i<249)
+         {
+         
+             data = fgetc(Gps);
+             buffer_in[i] = data;
+             i++;
+        
+         }
+}
+
+void cleanScreen()
+{
+         lcd_gotoxy(1,1);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,2);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,3);
+         lcd_putc("                                                        ");
+         lcd_gotoxy(1,4);
+         lcd_putc("                                                        ");
+}
+
+/*
+ switch(atof(buffer_mois)){
+         
+                      case 01  :  mois =  "Janvier" ; break;
+                      case 02  :  mois =  "Fevrier" ; break;
+                      case 03  :  mois =   "Mars"   ; break;
+                      case 04  :  mois =   "Avril"  ; break;
+                      case 05  :  mois =    "Mai"   ; break;
+                      case 06  :  mois =   "Juin"   ; break;
+                      case 07  :  mois =  "Juillet" ; break;
+                      case 8  :  mois =   "Aout"   ; break;
+                      case 09  :  mois = "Septembre"; break;
+                      case 10  :  mois = "Octobre"  ; break;
+                      case 11 :mois = "Novembre" ; break;
+                      case 12 :   mois = "Descembre"; break;
+         }
+               
+*/
+           
