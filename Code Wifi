@@ -16,8 +16,8 @@
 //End LCD Module Connections
 
 //Variable for Wifi
-#define LOGIN FAYSSAL
-#define PASSWORD FAYSSALISSAM
+#define LOGIN *********
+#define PASSWORD ***********
 //End variable for Wifi
 
 
