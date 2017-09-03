@@ -1,2 +1,517 @@
+#include <TinyGPS++.h>
+#include <LiquidCrystal.h>
+#include <SoftwareSerial.h>
+#include "SPI.h"
+#include "PWFusion_AS3935.h"
 
-Regroupement du code de l'AS3935, le wifi ESP8266, le Gps EM 506 et le LCD en cours ....
+
+
+/*Pin utilisé pour le lcd*/
+
+LiquidCrystal lcd(13, 12, 4, 5, 6, 7);
+
+//VARIABLES POUR LE WIFI
+
+String NomWifi = "FAYSSAL"; 
+String MotDePasse      = "fayssalissam";
+
+
+//VARIABLES POUR LE LIGHTNING SENSOR
+
+//Pin pour mettre l'AS3935 en mode SPI et non I2C
+int8_t CS_PIN  = 8;
+//Pin de sélection des différent esclaves du Maître
+int8_t SI_PIN  = 9;
+//Pin qui permet de détecter un evenement sur l'AS3935 (Bruit,perturbation ou éclair)
+int8_t IRQ_PIN = 2; 
+//Variable pour la détection d'event                    
+volatile int8_t AS3935_ISR_Trig = 0;
+
+// #defines
+#define AS3935_INDOORS       0   // Variable pour mettre l'AS en indoor mode
+#define AS3935_OUTDOORS      1   // Variable pour mettre l'AS en outdoor mode
+#define AS3935_DIST_DIS      0   // Variable pour désavtiver les disturber event
+#define AS3935_DIST_EN       1   // Variable pour avtiver les disturber event
+
+ 
+/*Ici nous devont définir la valeur que va prendre la capacité qui va 
+permettre de stabiliser la fréquence de l'Afe, c'est à dire le composant
+de la puce As qui va moduler et amplifier le signal de l'antenne pour
+pouvoir être comprehensible par l'As . La valeur choisie doit être
+comprise entre 0 et 120 et uniquement par multiple de 8pf*/
+
+#define AS3935_CAPACITANCE   104      
+
+//La fonction d'interruption de l'AS 
+void AS3935_ISR();
+
+//Définit les 3 pin (cs, irq and si) qui vont intérragir avec l'arduino en dehors des pin pour SPI
+PWF_AS3935  lightning0(CS_PIN, IRQ_PIN, SI_PIN);
+
+//VARIABLE POUR LE GPS EM506
+
+// Les deux Pin de communication pour le GPS
+int RXPinEM = 10;
+int TXPinEM = 11;
+
+// Débit de communication du GPS
+int GPSBaud = 4800;
+
+// Création d'un objet gps
+TinyGPSPlus gps;
+
+// Creation de la communication Gps
+SoftwareSerial gpsSerial(RXPinEM, TXPinEM);
+
+//Création de la communication Wifi
+int RXPinESP = 18;
+int TXPinESP = 19;
+SoftwareSerial wifiSerial(RXPinESP, TXPinESP);
+
+void setup()
+{
+  /*Taille de l'écran*/
+  lcd.begin(20, 4);
+  
+  //Initialisation la communication avec la console
+  Serial.begin(9600);
+
+  //Initialisation la communication avec le Gps
+  gpsSerial.begin(4800);
+
+ //Initialisation de la communication SPI pour l'AS
+  SPI.begin();  
+
+   //Message de départ
+  
+  Serial.println(F("Sabbani"));
+  Serial.println(F("Nour-Eddine")); 
+  Serial.println(F("Détecteur d'impacts de foudre"));
+  Serial.println();
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Sabbani");
+  lcd.setCursor(0, 1);
+  lcd.print("Nour-Eddine");
+  lcd.setCursor(0, 2);
+  lcd.print("Détecteur d'impacts");
+  lcd.setCursor(0, 3);
+  lcd.print("de foudre");
+  delay(2000);
+  lcd.clear();
+
+  //Ensemble de commande de l'initialisation de l'AS
+  
+  initAS3935();
+
+  //Initalisation du wifi
+
+  initWifiESP();
+  
+}
+
+void loop()
+{
+  Serial.println(F("Data of gps"));
+  
+  // Détection de caractère valide venant du Pps
+  while (gpsSerial.available() > 0)
+    
+    if (gps.encode(gpsSerial.read()))
+      displayInfo();
+
+  // On va attendre 5 seconde que le Gps reponde avant de le relancer
+  if (millis() > 5000 && gps.charsProcessed() < 10)
+  {
+    Serial.println(F("No GPS detected"));
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Gps pas détecté");
+    while(true);
+  }
+  
+  // Attente d'un evenement venant de lAs3935
+  while(1 == AS3935_ISR_Trig){
+    
+    detectionAs();
+
+  }
+}
+
+void detectionAs()
+{
+   
+
+ 
+  // reset le flag
+  AS3935_ISR_Trig = 0;
+  
+  // Recupération de la source de l'interruption
+  uint8_t int_src = lightning0.AS3935_GetInterruptSrc();
+
+  // there are many of source : a noise, a disturber or a lightning event
+  // Il existe 3 types de sources différentes : bruit, perturbateurs et éclair. 
+  if(0 == int_src)
+  {
+    Serial.println("Une erreur a eu lieu");
+  }
+  else if(1 == int_src)
+  {
+    
+
+    sendDataToSrv();
+
+    
+  }
+  else if(2 == int_src)
+  {
+    Serial.println("Une perturbation a eu lieu");
+  }
+  else if(3 == int_src)
+  {
+    Serial.println("Un bruit trop élévé a eu lieu");
+  }
+
+  
+}
+
+void sendDataToSrv()
+{
+    uint8_t lightning_energy = lightning0.AS3935_GetSpikeRejection();
+    uint8_t lightning_dist_km = lightning0.AS3935_GetLightningDistKm();
+    
+    Serial.print("Distance of the front of lightning:");
+    Serial.print(lightning_dist_km);
+    Serial.println(" kilometers");
+    
+    Serial.print("Energy of the front of lightning:");
+    Serial.print(lightning_energy);
+    
+//    wifiSerial_WRITE("AT+CIPSEND=2");
+//    wifiSerial_READ(2000);
+//    wifiSerial_WRITE(lightning_dist_km);
+//
+//    wifiSerial_WRITE("AT+CIPSEND=9");
+//    wifiSerial_READ(2000);
+//    wifiSerial_WRITE(gps.location.lat());
+//
+//    wifiSerial_WRITE("AT+CIPSEND=8");
+//    wifiSerial_READ(2000);
+//    wifiSerial_WRITE(gps.location.lng());
+//
+//    wifiSerial_WRITE("AT+CIPSEND=8");
+//    wifiSerial_READ(2000);
+//    wifiSerial_WRITE(gps.date.day()+"/"+gps.date.month()+"/"+gps.date.year());
+//
+//    wifiSerial_WRITE("AT+CIPSEND=11");
+//    wifiSerial_READ(2000);
+//    wifiSerial_WRITE(gps.time.hour()+":"+gps.time.minute()+":"+gps.time.second()+":"+gps.time.centisecond());  
+    
+}
+void initAS3935()
+{
+  //Choix de la clock, plus petite que 2 Mhz  
+  // Et différente de 500kz car c'est la fréquence de l'antenne
+  SPI.setClockDivider(SPI_CLOCK_DIV16);  
+
+  //Define how the clock start, low or high and the read mode
+  // Permet de définir le sens de lecture/Ecriture sur la clock 
+  SPI.setDataMode(SPI_MODE1); 
+
+  // Le sens des bits MSB en premier (Most significant Bit) to LSB en premier (Low significant Bit)
+  SPI.setBitOrder(MSBFIRST);               
+
+  // Mettre les registre par defaut
+  lightning0.AS3935_DefInit();  
+                         
+  // Configuration de l'AS et son mode d'utilisation
+  lightning0.AS3935_ManualCal(AS3935_CAPACITANCE, AS3935_OUTDOORS, AS3935_DIST_EN);
+                  // AS3935_ManualCal Parameters:
+                  //   --> capacitance, in pF (marked on package)
+                  //   --> indoors/outdoors (AS3935_INDOORS:0 / AS3935_OUTDOORS:1)
+                  //   --> disturbers (AS3935_DIST_EN:1 / AS3935_DIST_DIS:2)
+                  // function also powers up the chip
+                  
+
+  //Activation des interruptions (0 -> pin 2, 1 -> pin 3 )
+  attachInterrupt(0, AS3935_ISR, RISING);
+
+  
+    //On récupere le niveau de détection de bruit de l'AS 
+    int8_t lightning_noise_level = lightning0.AS3935_GetNoiseFloorLvl();
+    //On récupere le niveau du watchdog de l'AS 
+    int8_t lightning_watchdog_level = lightning0.AS3935_GetWatchdogThreshold();
+    //On récupere le niveau de sensibilité de l'antenne de l'AS 
+    int8_t lightning_spike_rejection = lightning0.AS3935_GetSpikeRejection();
+
+    Serial.println(" ");
+    Serial.println("***************** Data from lightning sensor ****************");
+    Serial.print("Noise floor level: ");
+    Serial.print(lightning_noise_level );
+    Serial.print("\r\n");
+    delay(2000);
+
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Noise floor level: ");
+    lcd.setCursor(0,1);
+    lcd.print(lightning_noise_level );
+
+    delay(2000);
+    
+    Serial.print("Watchdog level: ");
+    Serial.print(lightning_watchdog_level);
+    Serial.print("\r\n");
+    
+    lcd.setCursor(0,2);
+    lcd.print("Watchdog level: ");
+    lcd.setCursor(0,3);
+    lcd.print(lightning_watchdog_level);
+
+    delay(2000);
+    lcd.clear();
+    
+    Serial.print("Spike level: ");
+    Serial.print(lightning_spike_rejection);
+    Serial.print("\r\n");
+
+    lcd.setCursor(0,0);
+    lcd.print("Spike level: ");
+    lcd.setCursor(0,1);
+    lcd.print(lightning_spike_rejection );
+    delay(2000);
+
+    Serial.println("***************End Data from lightning sensor***************");
+    Serial.println(" ");
+    lcd.clear();
+}
+
+//Quand il detect un event, il met au niveau haut l'AS3935
+void AS3935_ISR()
+{
+  AS3935_ISR_Trig = 1;
+}
+
+void initWifiESP()
+{   
+      Serial.println("*****************DEBUT DE L'INITIALISATION******************");
+      // Commande pour voir la réactivité du module
+      wifiSerial_WRITE("AT");
+      wifiSerial_READ(2000);
+      Serial.println(" ");
+      lcd.setCursor(0,0);
+      lcd.print("AT OK");
+      delay(1000);
+      lcd.clear();
+      // Un reset avant toute configuration 
+      wifiSerial_WRITE("AT+RST");
+      wifiSerial_READ(2000);
+      Serial.println(" ");
+      lcd.setCursor(0,0);
+      lcd.print("AT Reset");
+      delay(1000);
+      lcd.clear();
+      // On va definir le role du module (3 access point et serveur)
+      wifiSerial_WRITE("AT+CWMODE=3");
+      wifiSerial_READ(5000);
+      Serial.println(" ");
+      lcd.setCursor(0,0);
+      lcd.print("CWMODE3");
+      delay(1000);
+      lcd.clear();
+      // On va se connecter à un réseau
+      wifiSerial_WRITE("AT+CWJAP=\""+ NomWifi + "\",\"" + MotDePasse +"\"");
+      wifiSerial_READ(10000);
+      Serial.println(" ");
+      lcd.setCursor(0,0);
+      lcd.print("Connect to "+ NomWifi +" wifi");
+      delay(1000);
+      lcd.clear();
+      // On va recuperer son adresse ip 
+      wifiSerial_WRITE("AT+CIFSR");
+      wifiSerial_READ(1000);
+      Serial.println(" ");
+      lcd.setCursor(0,0);
+      lcd.print("IP");
+      delay(1000);
+      lcd.clear();
+      // Nombre de connexion TCP-IP (1= multiple, 0 = un)
+//      wifiSerial_WRITE("AT+CIPMUX=1");   
+//      wifiSerial_READ(1000);
+//      Serial.println(" ");
+//      lcd.setCursor(0,0);
+//      lcd.print("Mux");
+//      delay(1000);
+//      lcd.clear();
+//      //Definit notre module comme un serveur d'acces
+//      //Pour cela on doit ouvrir le port 80 
+//      wifiSerial_WRITE("AT+CIPSERVER=1");
+//      wifiSerial_READ(1000);
+//      lcd.setCursor(0,0);
+//      lcd.print("ConnexionServeur");
+//      delay(1000);
+      lcd.clear();
+//      while (1)
+//      {
+//        wifiSerial_WRITE("AT+CIPSEND=10");
+//        wifiSerial_READ(2000);
+//        wifiSerial_WRITE("SalutSalut");
+//        
+//      }
+      Serial.println("***************** INITIALISATION TERMINEE ******************");
+     
+}
+void disconnectwifiSerial()
+{   
+      Serial.println("**************** DEBUT DE LA DECONNECTION ******************");
+      
+      // Fermer les connexions tcp/ip du module wifi
+      wifiSerial_WRITE("AT+CIPCLOSE");
+      wifiSerial_READ(2000);
+      
+      // Quitter le mode Access Point
+      wifiSerial_WRITE("AT+CWQAP");
+      wifiSerial_READ(2000);
+
+      lcd.setCursor(0,0);
+      lcd.print("Deconnexion");
+      delay(1000);
+      lcd.clear();
+
+      Serial.println("***************** FIN DE LA DECONNECTION ********************");
+      delay(2000); 
+     
+}
+
+
+//Fonction qui envoie une commande à l'wifiSerial
+
+void wifiSerial_WRITE(String commande)
+{  
+      wifiSerial.println(commande);
+      Serial.print(commande);
+}
+
+//Fonction qui lit et affiche les messages envoyés par l'wifiSerial
+ 
+void wifiSerial_READ(const int timeout)
+{
+      String reponse = "";
+      long int time = millis();
+      while( (time+timeout) > millis())
+      {
+        while(wifiSerial.available())
+        {
+          char c = wifiSerial.read();
+          Serial.print(c); 
+          reponse+=c;
+        }
+      }
+      Serial.print(reponse);   
+}
+    /****************************************************************/
+    /*      Fonction qui envoie les données récupérées l'wifiSerial    */
+    /****************************************************************/
+void send_Data(String data)
+{  
+      //Pas plus de 2048 caractère pour les données envoyées
+       wifiSerial_WRITE("AT+CIPSEND=2048");   
+       wifiSerial_READ(1000);
+       wifiSerial_WRITE(data); 
+       wifiSerial.println(data);
+      
+}
+
+void displayInfo()
+{
+  
+  Serial.print(F("Location: "));
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Location:"); 
+  if (gps.location.isValid())
+  {
+    lcd.setCursor(0, 1);
+    lcd.print("Lat: ");
+    lcd.print(gps.location.lat(), 6);
+    lcd.setCursor(0, 2);
+    lcd.print("Lon: ");
+    lcd.print(gps.location.lng(), 6);
+    
+    Serial.print(gps.location.lat(), 6);
+    Serial.print(F(", "));
+    Serial.print(gps.location.lng(), 6);
+  }
+  else
+  {
+    Serial.print(F("INVALID"));
+    lcd.setCursor(0, 1);
+    lcd.print("INVALID");
+    lcd.setCursor(0, 2);
+    lcd.print("INVALID");
+  }
+  delay(2000);
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Date/Time:"); 
+  Serial.print(F("  Date/Time: "));
+  if (gps.date.isValid())
+  {
+    lcd.setCursor(0, 1);
+    lcd.print(gps.date.month());
+    lcd.print("/");
+    lcd.print(gps.date.day());
+    lcd.print("/");
+    lcd.print(gps.date.year());
+
+    Serial.print(gps.date.day());
+    Serial.print(F("/"));
+    Serial.print(gps.date.month());                                                                 
+    Serial.print(F("/"));
+    Serial.print(gps.date.year());
+    Serial.print(F(", "));
+  }
+  else
+  {
+    Serial.print(F("INVALID, "));
+    lcd.setCursor(0, 1);
+    lcd.print("INVALID");
+    
+  }
+  delay(2000);
+ 
+  if (gps.time.isValid())
+  {
+    lcd.setCursor(0, 2);
+    if (gps.time.hour() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.hour()+2);
+    lcd.print(gps.time.hour()+2);
+    lcd.print(":");
+    Serial.print(F(":"));
+    if (gps.time.minute() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.minute());
+    lcd.print(gps.time.minute());
+    lcd.print(":");
+    Serial.print(F(":"));
+    if (gps.time.second() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.second());
+    lcd.print(gps.time.second());
+    lcd.print(":");
+    Serial.print(F("."));
+    if (gps.time.centisecond() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.centisecond());
+    lcd.print(gps.time.centisecond());
+
+    
+  }
+  else
+  {
+    Serial.print(F("INVALID"));
+    lcd.setCursor(0, 2);
+    lcd.print("INVALID");
+  }
+  delay(2000);
+
+  Serial.println();
+}
